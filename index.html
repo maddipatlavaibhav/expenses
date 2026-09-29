@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statement importer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#F6F7F3; --card:#FFFFFF; --ink:#1C2527; --muted:#5F6B6D; --line:#DDE2DA;
+  --accent:#1E5B52; --accent-soft:#E3EEEA; --out:#A8432F; --in:#2F7A4B;
+  --flag:#9A6614; --flag-bg:#FBF1DC; --err:#A8432F; --err-bg:#FBE9E4;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --paper:#141A1B; --card:#1C2426; --ink:#E6ECE9; --muted:#9AA7A6; --line:#2E393B;
+    --accent:#6FB8A8; --accent-soft:#20363A; --out:#E4846F; --in:#7CC596;
+    --flag:#E2B25A; --flag-bg:#3A2F19; --err:#E4846F; --err-bg:#3A221D; color-scheme:dark; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.5 "IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;font-variant-numeric:tabular-nums}
+main{max-width:1180px;margin:0 auto;padding:28px 20px 60px}
+header.top{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+h1{font-size:1.6rem;margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.05rem;margin:0 0 12px;font-weight:600}
+.pill{font-size:.85rem;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--card)}
+.pill.on{color:var(--in);border-color:currentColor}
+.pill.warn{color:var(--flag);border-color:currentColor}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:16px}
+.muted{color:var(--muted)}
+button,.btn{font:inherit;font-weight:600;border-radius:7px;padding:8px 14px;border:1px solid var(--line);
+  background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme: dark){ button.primary{color:#0F1A1B} }
+button:disabled{opacity:.55;cursor:progress}
+button:focus-visible,input:focus-visible,select:focus-visible,label.drop:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+input[type=text],input[type=password],input[type=search],select{font:inherit;padding:7px 10px;border:1px solid var(--line);
+  border-radius:7px;background:var(--card);color:var(--ink)}
+
+/* upload */
+.upload{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:stretch}
+label.drop{display:flex;flex-direction:column;justify-content:center;gap:4px;min-height:120px;padding:16px 18px;
+  border:2px dashed var(--line);border-radius:10px;cursor:pointer;background:var(--paper)}
+label.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+label.drop strong{font-size:1.05rem}
+label.drop input{position:absolute;opacity:0;width:1px;height:1px}
+.opts{display:flex;flex-direction:column;gap:10px;min-width:260px}
+.opts label{display:flex;flex-direction:column;gap:4px;font-size:.9rem;color:var(--muted)}
+.opts label.check{flex-direction:row;align-items:center;gap:8px;color:var(--ink)}
+.samples{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.9rem}
+.samples button{font-weight:500;padding:4px 10px;font-size:.88rem}
+@media (max-width:720px){ .upload{grid-template-columns:1fr} .opts{min-width:0} }
+
+.alert{border-radius:8px;padding:10px 14px;margin-bottom:16px;background:var(--err-bg);color:var(--err);font-weight:500}
+.alert[hidden]{display:none}
+
+/* summary */
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+.summary div{background:var(--card);padding:12px 14px}
+.summary dt{font-size:.82rem;color:var(--muted)}
+.summary dd{margin:2px 0 0;font-size:1.15rem;font-weight:600}
+.head-row{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:12px}
+.stamp{display:inline-block;transform:rotate(-4deg);border:3px double currentColor;border-radius:6px;
+  padding:4px 12px;font-weight:700;font-size:1rem;line-height:1.2;text-align:center}
+.stamp small{display:block;font-weight:500;font-size:.75rem}
+.stamp.ok{color:var(--in)} .stamp.bad{color:var(--flag)} .stamp.na{color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 4px;padding:0;list-style:none}
+.chips li{font-size:.85rem;background:var(--accent-soft);border-radius:6px;padding:3px 9px}
+.chips b{font-weight:600}
+.warnings{margin:10px 0 0;padding:0;list-style:none;color:var(--flag);font-weight:500}
+
+/* toolbar + table */
+.layout{display:grid;grid-template-columns:1fr 280px;gap:16px;align-items:start}
+.layout>*{min-width:0}
+@media (max-width:980px){ .layout{grid-template-columns:1fr} }
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.toolbar input[type=search]{flex:1;min-width:180px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{border:0;border-radius:0;font-weight:500;padding:7px 12px}
+.seg button[aria-pressed=true]{background:var(--accent);color:#fff}
+@media (prefers-color-scheme: dark){ .seg button[aria-pressed=true]{color:#0F1A1B} }
+.scroll{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top;white-space:nowrap}
+th{font-weight:600;color:var(--muted);position:sticky;top:0;background:var(--card)}
+th[data-sort]{cursor:pointer} th[data-sort]:hover{color:var(--ink)}
+td.num,th.num{text-align:right}
+.amt.debit{color:var(--out)} .amt.credit{color:var(--in)}
+td.narr{max-width:340px;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+tr.open td.narr{white-space:normal;word-break:break-all;color:var(--ink)}
+tbody tr{cursor:pointer} tbody tr:hover td{background:var(--paper)}
+tr.flagged td:first-child{box-shadow:inset 3px 0 var(--flag)}
+.flag{display:inline-block;font-size:.78rem;background:var(--flag-bg);color:var(--flag);border-radius:5px;padding:1px 7px;margin-right:4px}
+.count{font-size:.85rem;color:var(--muted);margin:8px 2px}
+
+/* merchants */
+.merchants ol{list-style:none;margin:0;padding:0}
+.merchants ol.all{max-height:520px;overflow-y:auto;margin-right:-8px;padding-right:8px}
+.merchants li{border-bottom:1px solid var(--line);font-size:.9rem}
+.merchants li:last-child{border-bottom:0}
+.merchants li.empty{padding:7px 0}
+.merchants li button{display:block;width:100%;text-align:left;font-weight:400;border:0;border-radius:6px;
+  padding:7px 6px;margin:0 -6px;width:calc(100% + 12px);background:none}
+@media (hover:hover){ .merchants li button:hover{background:var(--paper)} }
+.merchants li button[aria-pressed=true]{background:var(--accent-soft);font-weight:600}
+.merchants .row{display:flex;justify-content:space-between;gap:8px}
+.merchants .more{margin-top:10px;width:100%;font-weight:500;font-size:.88rem;padding:6px 10px}
+.filter-chip{display:inline-flex;align-items:center;gap:6px;font-weight:500;font-size:.88rem;padding:5px 10px;
+  background:var(--accent-soft);border-color:var(--accent);color:var(--ink)}
+.merchants .bar{height:4px;background:var(--accent-soft);border-radius:2px;margin-top:5px}
+.merchants .bar span{display:block;height:100%;background:var(--accent);border-radius:2px}
+
+/* mapping */
+.map table td,.map table th{font-size:.82rem;padding:5px 8px}
+.map select{font-size:.82rem;padding:4px 6px;min-width:120px}
+.map tr.hdr td{background:var(--accent-soft);font-weight:600;color:var(--ink)}
+.map td.pick{position:sticky;left:0;background:var(--card)}
+.map-actions{display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap}
+
+/* profiles */
+details summary{cursor:pointer;font-weight:600}
+.profiles{list-style:none;padding:0;margin:12px 0 0}
+.profiles li{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:.9rem}
+.profiles li:last-child{border-bottom:0}
+.profiles code{font-size:.82rem;color:var(--muted)}
+[hidden]{display:none !important}
+@media (prefers-reduced-motion: reduce){*{transition:none !important}}
+</style>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<meta name="theme-color" content="#1E5B52">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="apple-touch-icon" href="icon-180.png">
+</head>
+<body>
+<main>
+  <header class="top">
+    <h1>Statement importer</h1>
+    <span id="llm" class="pill">Checking local LLM…</span>
+  </header>
+
+  <section class="card">
+    <div class="upload">
+      <label class="drop" id="drop">
+        <input type="file" id="file" accept=".csv,.txt,.tsv,.xls,.xlsx,.xlsm,.pdf">
+        <strong id="fileName">Drop a bank statement here</strong>
+        <span class="muted" id="fileHint">or click to choose. CSV, XLS, XLSX or PDF.</span>
+      </label>
+      <div class="opts">
+        <label>PDF password (if any)
+          <input type="password" id="password" autocomplete="off">
+        </label>
+        <label class="check"><input type="checkbox" id="useLlm"> Use local LLM if columns aren't recognised</label>
+        <button class="primary" id="importBtn">Import statement</button>
+      </div>
+    </div>
+    <div class="samples"><span class="muted">Or try a sample:</span><span id="samples"></span></div>
+  </section>
+
+  <div class="alert" id="alert" role="alert" hidden></div>
+
+  <section class="card map" id="mapCard" hidden>
+    <h2>Map the columns</h2>
+    <p class="muted" style="margin-top:-6px">Pick the header row on the left, then say what each column holds. You need Date, Narration, and either Debit + Credit or a single Amount. This layout is saved, so the next statement like it imports automatically.</p>
+    <div class="scroll" style="max-height:420px;overflow:auto"><table id="mapTable"></table></div>
+    <div class="map-actions">
+      <button class="primary" id="mapSave">Save layout and import</button>
+      <button id="mapCancel">Cancel</button>
+      <span class="muted" id="mapMsg"></span>
+    </div>
+  </section>
+
+  <section id="results" hidden>
+    <div class="head-row">
+      <div>
+        <h2 style="margin:0" id="resTitle"></h2>
+        <div class="muted" id="resSub"></div>
+      </div>
+      <div id="stamp"></div>
+    </div>
+    <dl class="summary" id="summary"></dl>
+    <div class="card" style="padding:12px 14px">
+      <ul class="chips" id="chips"></ul>
+      <ul class="warnings" id="warnings"></ul>
+    </div>
+
+    <div class="layout">
+      <div>
+        <div class="toolbar">
+          <input type="search" id="q" placeholder="Search merchant, narration, UPI ID…">
+          <div class="seg" role="group" aria-label="Direction">
+            <button data-dir="all" aria-pressed="true">All</button>
+            <button data-dir="debit" aria-pressed="false">Money out</button>
+            <button data-dir="credit" aria-pressed="false">Money in</button>
+          </div>
+          <label class="check" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="flaggedOnly"> Flagged only</label>
+          <button class="filter-chip" id="merchantChip" title="Clear merchant filter" hidden></button>
+          <button id="fixMap">Fix column mapping</button>
+          <button id="exportXlsx" data-format="xlsx" title="Download the rows shown in the table">Download Excel</button>
+          <button id="exportPdf" data-format="pdf" title="Download the rows shown in the table">Download PDF</button>
+        </div>
+        <div class="scroll">
+          <table>
+            <thead><tr>
+              <th data-sort="date">Date</th><th data-sort="merchant">Merchant</th><th>Channel</th>
+              <th data-sort="amount" class="num">Amount</th><th class="num">Balance</th><th>Narration</th><th>Flags</th>
+            </tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="count" id="count"></div>
+      </div>
+      <aside class="card merchants">
+        <h2>Where the money went</h2>
+        <ol id="merchants"></ol>
+        <button class="more" id="merchantsMore" hidden></button>
+      </aside>
+    </div>
+  </section>
+
+  <section class="card">
+    <details id="profilesBox">
+      <summary>Saved layouts <span class="muted" id="profCount"></span></summary>
+      <p class="muted" style="margin:8px 0 0">Each statement layout's column mapping is remembered. Delete one to test detection from scratch.</p>
+      <ul class="profiles" id="profiles"></ul>
+    </details>
+  </section>
+</main>
+
+<script src="local-api.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const inr = new Intl.NumberFormat('en-IN', {style:'currency', currency:'INR', minimumFractionDigits:2});
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const FIELDS = [['','—'],['date','Date'],['narration','Narration'],['debit','Debit (out)'],['credit','Credit (in)'],
+  ['amount','Amount (single)'],['dr_cr','Dr / Cr type'],['balance','Balance'],['ref','Ref / cheque no']];
+const LABEL = Object.fromEntries(FIELDS);
+const SOURCE = {synonyms:'recognised automatically', profile:'saved layout', llm:'local LLM', manual:'your mapping'};
+
+const state = {result:null, dir:'all', q:'', flaggedOnly:false, merchant:null, allMerchants:false, sort:{key:'date', asc:true}, map:null};
+const TOP_MERCHANTS = 10;
+const merchantOf = t => t.merchant || 'Unknown';
+
+// The phone app (build_pwa.py) sets window.localApi to answer these calls in the browser instead.
+const api = (path, opts) => (window.localApi || serverApi)(path, opts);
+async function serverApi(path, opts){
+  try{
+    const r = await fetch(path, opts);
+    let body = {};
+    try{ body = await r.json(); }catch{ body = {message:`Server returned ${r.status}.`}; }
+    return {ok:r.ok, body};
+  }catch{ return {ok:false, body:{message:'Can’t reach the server. Is uvicorn running?'}}; }
+}
+function showError(msg){ const a=$('#alert'); a.textContent=msg; a.hidden=!msg; }
+function busy(on){ document.querySelectorAll('button').forEach(b=>b.disabled=on); $('#importBtn').textContent = on ? 'Importing…' : 'Import statement'; }
+
+/* ---------- upload ---------- */
+const fileInput = $('#file'), drop = $('#drop');
+function setFile(f){
+  $('#fileName').textContent = f ? f.name : 'Drop a bank statement here';
+  $('#fileHint').textContent = f ? `${(f.size/1024).toFixed(1)} KB · click to change` : 'or click to choose. CSV, XLS, XLSX or PDF.';
+}
+fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+['dragenter','dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', ev => {
+  if(!ev.dataTransfer.files.length) return;
+  fileInput.files = ev.dataTransfer.files; setFile(fileInput.files[0]);
+});
+
+$('#importBtn').onclick = async () => {
+  const f = fileInput.files[0];
+  if(!f) return showError('Choose a statement file first.');
+  const fd = new FormData();
+  fd.append('file', f); fd.append('password', $('#password').value); fd.append('use_llm', $('#useLlm').checked);
+  busy(true); const res = await api('/api/import', {method:'POST', body:fd}); busy(false);
+  handle(res);
+};
+
+async function loadSamples(){
+  const res = await api('/api/samples');
+  if(!res.ok) return;
+  $('#samples').innerHTML = res.body.map(n => `<button data-sample="${esc(n)}">${esc(n)}</button>`).join(' ');
+  document.querySelectorAll('[data-sample]').forEach(b => b.onclick = async () => {
+    busy(true);
+    const r = await api('/api/import-sample', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({name:b.dataset.sample, use_llm:$('#useLlm').checked})});
+    busy(false); handle(r);
+  });
+}
+
+function handle(res){
+  showError('');
+  if(res.ok){ state.result = res.body; state.merchant = null; state.allMerchants = false; $('#mapCard').hidden = true; renderResult(); loadProfiles(); return; }
+  const b = res.body;
+  if(b.code === 'password'){ showError(b.message); $('#password').focus(); }
+  else if(b.code === 'mapping'){ showError(b.message); $('#results').hidden = true; openMapping(b); }
+  else showError(b.message || 'Import failed.');
+}
+
+/* ---------- results ---------- */
+function renderResult(){
+  const r = state.result, s = r.summary;
+  $('#results').hidden = false;
+  $('#resTitle').textContent = r.filename;
+  $('#resSub').textContent = `Columns: ${SOURCE[s.mapping_source] || s.mapping_source} · header on row ${s.header_row + 1} · ${s.order === 'newest_first' ? 'statement was newest-first, re-sorted' : 'oldest-first'}`;
+  const stampCls = s.balance_ok ? 'ok' : (s.balance_check.startsWith('skipped') ? 'na' : 'bad');
+  const stampTxt = s.balance_ok ? 'Balances<small>verified</small>' : (stampCls === 'na' ? 'No balance<small>column</small>' : `Check<small>${esc(s.balance_check)}</small>`);
+  $('#stamp').innerHTML = `<span class="stamp ${stampCls}">${stampTxt}</span>`;
+  const net = Number(s.money_in) - Number(s.money_out);
+  $('#summary').innerHTML = [
+    ['Transactions', s.count],
+    ['Period', s.period_start ? `${fmtDate(s.period_start)} – ${fmtDate(s.period_end)}` : '—'],
+    ['Money in', inr.format(s.money_in)],
+    ['Money out', inr.format(s.money_out)],
+    ['Net', (net >= 0 ? '+' : '−') + inr.format(Math.abs(net))],
+    ['Needs review', `${s.flagged} flagged · ${s.skipped_rows} row${s.skipped_rows === 1 ? '' : 's'} skipped`],
+  ].map(([k,v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  $('#chips').innerHTML = r.columns.map(c => `<li><b>${esc(LABEL[c.field] || c.field)}</b> ← ${esc(c.header || '(blank)')} <span class="muted">col ${c.index + 1}</span></li>`).join('');
+  $('#warnings').innerHTML = r.warnings.map(w => `<li>${esc(w)}</li>`).join('');
+  renderRows(); renderMerchants();
+}
+function fmtDate(iso){ const [y,m,d] = iso.split('-'); return `${d} ${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][m-1]} ${y}`; }
+
+function filtered(){
+  const q = state.q.toLowerCase();
+  let tx = state.result.transactions.filter(t =>
+    (state.dir === 'all' || t.direction === state.dir) &&
+    (!state.flaggedOnly || t.issues.length) &&
+    (!state.merchant || merchantOf(t) === state.merchant) &&
+    (!q || [t.merchant, t.narration, t.upi_id, t.channel].some(v => (v || '').toLowerCase().includes(q))));
+  const {key, asc} = state.sort, k = asc ? 1 : -1;
+  return tx.slice().sort((a,b) => {
+    const va = key === 'amount' ? Number(a.amount) : (a[key] || ''), vb = key === 'amount' ? Number(b.amount) : (b[key] || '');
+    return (va > vb ? 1 : va < vb ? -1 : 0) * k;
+  });
+}
+function renderRows(){
+  const tx = filtered();
+  $('#rows').innerHTML = tx.map(t => `
+    <tr class="${t.issues.length ? 'flagged' : ''}">
+      <td>${fmtDate(t.date)}</td>
+      <td>${esc(t.merchant || '—')}${t.upi_id ? `<div class="muted" style="font-size:.8rem">${esc(t.upi_id)}</div>` : ''}</td>
+      <td>${esc(t.channel || '')}</td>
+      <td class="num amt ${t.direction}">${t.direction === 'debit' ? '−' : '+'}${inr.format(t.amount)}</td>
+      <td class="num muted">${t.balance === null ? '' : inr.format(t.balance)}</td>
+      <td class="narr" title="${esc(t.narration)}">${esc(t.narration)}</td>
+      <td>${t.issues.map(i => `<span class="flag">${esc(i)}</span>`).join('')}</td>
+    </tr>`).join('') || `<tr><td colspan="7" class="muted">No transactions match these filters.</td></tr>`;
+  $('#count').textContent = `Showing ${tx.length} of ${state.result.transactions.length}. Click a row to see the full narration.`;
+  const chip = $('#merchantChip');
+  chip.hidden = !state.merchant;
+  chip.innerHTML = state.merchant ? `Merchant: ${esc(state.merchant)} <span aria-hidden="true">✕</span>` : '';
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    const on = th.dataset.sort === state.sort.key;
+    th.textContent = th.textContent.replace(/ [↑↓]$/, '') + (on ? (state.sort.asc ? ' ↑' : ' ↓') : '');
+  });
+}
+function renderMerchants(){
+  const totals = {};
+  state.result.transactions.filter(t => t.direction === 'debit').forEach(t => {
+    const m = merchantOf(t);
+    totals[m] = totals[m] || {sum:0, n:0}; totals[m].sum += Number(t.amount); totals[m].n++;
+  });
+  const all = Object.entries(totals).sort((a,b) => b[1].sum - a[1].sum);
+  const shown = state.allMerchants ? all : all.slice(0, TOP_MERCHANTS);
+  const max = all.length ? all[0][1].sum : 1;
+  $('#merchants').classList.toggle('all', state.allMerchants);
+  $('#merchants').innerHTML = shown.map(([m, v]) => `
+    <li><button data-merchant="${esc(m)}" aria-pressed="${m === state.merchant}" title="Show only ${esc(m)} in the table">
+      <div class="row"><span>${esc(m)} <span class="muted">×${v.n}</span></span><span>${inr.format(v.sum)}</span></div>
+      <div class="bar"><span style="width:${(v.sum / max * 100).toFixed(1)}%"></span></div></button></li>`).join('')
+    || '<li class="muted empty">No money out in this statement.</li>';
+  $('#merchants').querySelectorAll('[data-merchant]').forEach(b => b.onclick = () => setMerchant(b.dataset.merchant));
+  const more = $('#merchantsMore');
+  more.hidden = all.length <= TOP_MERCHANTS;
+  more.textContent = state.allMerchants ? `Show top ${TOP_MERCHANTS} only` : `Show all ${all.length} merchants`;
+}
+function setMerchant(m){
+  state.merchant = state.merchant === m ? null : m;      // clicking the active merchant clears it
+  renderRows(); renderMerchants();
+  if(state.merchant && matchMedia('(max-width:980px)').matches)   // table sits above the panel on narrow screens
+    $('.toolbar').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+}
+$('#merchantsMore').onclick = () => { state.allMerchants = !state.allMerchants; renderMerchants(); };
+$('#merchantChip').onclick = () => setMerchant(state.merchant);
+
+$('#rows').addEventListener('click', e => { const tr = e.target.closest('tr'); if(tr) tr.classList.toggle('open'); });
+$('#q').addEventListener('input', e => { state.q = e.target.value; renderRows(); });
+$('#flaggedOnly').addEventListener('change', e => { state.flaggedOnly = e.target.checked; renderRows(); });
+document.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+  state.dir = b.dataset.dir;
+  document.querySelectorAll('.seg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  renderRows();
+});
+document.querySelectorAll('th[data-sort]').forEach(th => th.onclick = () => {
+  const k = th.dataset.sort;
+  state.sort = {key:k, asc: state.sort.key === k ? !state.sort.asc : k !== 'amount'};
+  renderRows();
+});
+/* ---------- Excel / PDF download of the rows shown ---------- */
+function filterNote(shown){
+  const parts = [];
+  if(state.merchant) parts.push(`merchant ${state.merchant}`);
+  if(state.dir !== 'all') parts.push(state.dir === 'debit' ? 'money out only' : 'money in only');
+  if(state.q) parts.push(`search "${state.q}"`);
+  if(state.flaggedOnly) parts.push('flagged only');
+  return parts.length ? `Filtered (${parts.join(', ')}): ${shown} of ${state.result.transactions.length} transactions` : '';
+}
+async function serverExport(body){
+  try{
+    const r = await fetch('/api/export', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    if(!r.ok){ let msg; try{ msg = (await r.json()).message; }catch{} return {error: msg || `Export failed (${r.status}).`}; }
+    return {blob: await r.blob()};
+  }catch{ return {error:'Can’t reach the server. Is uvicorn running?'}; }
+}
+document.querySelectorAll('[data-format]').forEach(b => b.onclick = async () => {
+  const tx = filtered(), fmt = b.dataset.format;
+  if(!tx.length) return showError('No transactions to download. Clear the filters first.');
+  const label = b.textContent;
+  b.disabled = true; b.textContent = 'Preparing…';
+  const body = {format:fmt, filename:state.result.filename, note:filterNote(tx.length), transactions:tx};
+  const res = await (window.localExport || serverExport)(body);   // the phone app sets window.localExport
+  b.disabled = false; b.textContent = label;
+  if(res.error) return showError(res.error);
+  showError('');
+  const a = Object.assign(document.createElement('a'), {href:URL.createObjectURL(res.blob),
+    download:(state.result.filename.replace(/\.[^.]+$/, '') + (state.merchant ? ' - ' + state.merchant : '')).replace(/[\\/:*?"<>|]/g, '') + '.' + fmt});
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+});
+$('#fixMap').onclick = () => openMapping(state.result);
+
+/* ---------- manual mapping ---------- */
+function openMapping(d){
+  const width = Math.max(...d.preview.map(r => r.length), 0);
+  const cols = Array(width).fill('');
+  const hdrRow = d.header_row ?? (d.summary ? d.summary.header_row : null);
+  Object.entries(d.mapping || {}).forEach(([f, i]) => { if(i < width) cols[i] = f; });
+  state.map = {upload_id:d.upload_id, header_row:hdrRow, cols, preview:d.preview};
+  $('#mapMsg').textContent = '';
+  $('#mapCard').hidden = false;
+  renderMapping();
+  $('#mapCard').scrollIntoView({behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+}
+function renderMapping(){
+  const m = state.map;
+  const selects = m.cols.map((f, i) => `<th><select data-col="${i}" aria-label="Column ${i+1}">${FIELDS.map(([v,l]) => `<option value="${v}" ${v === f ? 'selected' : ''}>${l}</option>`).join('')}</select></th>`).join('');
+  const body = m.preview.map((row, ri) => `
+    <tr class="${ri === m.header_row ? 'hdr' : ''}">
+      <td class="pick"><label style="display:flex;gap:4px;align-items:center"><input type="radio" name="hdr" value="${ri}" ${ri === m.header_row ? 'checked' : ''}> ${ri + 1}</label></td>
+      ${row.map(c => `<td>${esc(c)}</td>`).join('')}
+    </tr>`).join('');
+  $('#mapTable').innerHTML = `<thead><tr><th class="pick">Header</th>${selects}</tr></thead><tbody>${body}</tbody>`;
+  $('#mapTable').querySelectorAll('select').forEach(s => s.onchange = () => { m.cols[+s.dataset.col] = s.value; });
+  $('#mapTable').querySelectorAll('input[name=hdr]').forEach(r => r.onchange = () => { m.header_row = +r.value; renderMapping(); });
+}
+$('#mapCancel').onclick = () => { $('#mapCard').hidden = true; };
+$('#mapSave').onclick = async () => {
+  const m = state.map, mapping = {}, dup = [];
+  m.cols.forEach((f, i) => { if(!f) return; if(f in mapping) dup.push(LABEL[f]); mapping[f] = i; });
+  if(m.header_row === null) return $('#mapMsg').textContent = 'Pick the header row first.';
+  if(dup.length) return $('#mapMsg').textContent = `${dup.join(', ')} is picked for more than one column.`;
+  busy(true);
+  const res = await api('/api/mapping', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({upload_id:m.upload_id, header_row:m.header_row, mapping, use_llm:false})});
+  busy(false);
+  if(!res.ok && res.body.code === 'incomplete') return $('#mapMsg').textContent = res.body.message;
+  handle(res);
+};
+
+/* ---------- saved layouts + LLM status ---------- */
+async function loadProfiles(){
+  const res = await api('/api/profiles');
+  if(!res.ok) return;
+  $('#profCount').textContent = `(${res.body.length})`;
+  $('#profiles').innerHTML = res.body.map(p => `
+    <li><div><div>${esc(p.header.filter(Boolean).slice(0, 5).join(' · '))}</div>
+      <code>${esc(SOURCE[p.source] || p.source)} · ${esc(p.signature)}</code></div>
+      <button data-del="${esc(p.signature)}">Delete</button></li>`).join('') || '<li class="muted">No saved layouts yet.</li>';
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    await api('/api/profiles/' + b.dataset.del, {method:'DELETE'}); loadProfiles();
+  });
+}
+async function loadLlm(){
+  const res = await api('/api/llm'), el = $('#llm'), b = res.body;
+  if(res.ok && b.on_device){ el.className = 'pill on'; el.textContent = 'Runs on this device · works offline'; $('#useLlm').closest('label').hidden = true; }
+  else if(res.ok && b.available && b.model_installed){ el.className = 'pill on'; el.textContent = `Local LLM ready · ${b.model}`; }
+  else if(res.ok && b.available){ el.className = 'pill warn'; el.textContent = `Ollama running, model missing: ollama pull ${b.model}`; }
+  else { el.className = 'pill'; el.textContent = 'Local LLM offline (optional)'; }
+}
+loadSamples(); loadProfiles(); loadLlm();
+</script>
+</body>
+</html>
